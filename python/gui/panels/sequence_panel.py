@@ -99,7 +99,7 @@ class SequencePanel(QGroupBox):
 
         # --- Row 2: Step info ---
         self.step_label = QLabel('Step — / —')
-        self.step_label.setFont(QFont('Monospace', 11))
+        self.step_label.setFont(QFont('Courier New', 11))
         self.step_name_label = QLabel('')
         self.step_name_label.setStyleSheet('font-weight: bold;')
         step_info_layout = QHBoxLayout()
@@ -110,9 +110,9 @@ class SequencePanel(QGroupBox):
         # --- Row 3: Time display ---
         time_layout = QHBoxLayout()
         self.total_time_label = QLabel('Time: 00:00')
-        self.total_time_label.setFont(QFont('Monospace', 11))
+        self.total_time_label.setFont(QFont('Courier New', 11))
         self.step_time_label = QLabel('Step Time: 00:00')
-        self.step_time_label.setFont(QFont('Monospace', 11))
+        self.step_time_label.setFont(QFont('Courier New', 11))
         time_layout.addWidget(self.total_time_label)
         time_layout.addStretch()
         time_layout.addWidget(self.step_time_label)

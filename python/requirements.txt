@@ -2,3 +2,4 @@ pyserial
 pytest
 openpyxl
 PyQt5
+opencv-python
