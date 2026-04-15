@@ -27,13 +27,19 @@ This project is a fork of [ClarkLabUCB/NewEraPumps_Python3](https://github.com/C
 
 | ID | Requirement |
 |----|-------------|
-| PC-01 | The system shall support running and stopping all connected pumps simultaneously, and a timed auto-stop mode (run all pumps, stop after elapsed time) |
-| PC-02 | The system shall support stopping individual pumps by pump ID |
-| PC-03 | The system shall support setting priming at a configurable fast rate and flow rate per individual pump in µL/hr, and updating flow rates while running |
-| PC-04 | The system shall support setting and reading syringe diameter per pump, but updating syringe parameters only possible when pumps are stopped.
+| PC-01 | The system shall support running all connected pumps simultaneously |
+| PC-02 | The system shall support stopping all pumps simultaneously |
+| PC-03 | The system shall support stopping individual pumps by pump ID |
+| PC-04 | The system shall support setting flow rate per individual pump in µL/hr |
 | PC-05 | The system shall support infuse (forward) and withdraw (reverse) directions |
-| PC-06 | The system shall support auto-discovery of connected pumps on a serial network |
-| PC-07 | Flow rates above 5000 µL/hr shall be automatically converted to mL/hr for pump command formatting |
+| PC-06 | The system shall support priming individual pumps at a configurable fast rate |
+| PC-07 | The system shall support reading the current flow rate of each pump |
+| PC-08 | The system shall support setting and reading syringe diameter per pump |
+| PC-09 | The system shall support auto-discovery of connected pumps on a serial network |
+| PC-10 | The system shall support a timed auto-stop mode (run all pumps, stop after elapsed time) |
+| PC-11 | The system shall support updating flow rates while pumps are actively running |
+| PC-12 | The system shall support updating syringe parameters only when pumps are stopped |
+| PC-13 | Flow rates above 5000 µL/hr shall be automatically converted to mL/hr for pump command formatting |
 
 ### 3.2 Hardware Support
 
@@ -80,6 +86,7 @@ This project is a fork of [ClarkLabUCB/NewEraPumps_Python3](https://github.com/C
 | GUI-02 | Each connected syringe pump shall be displayed as a row with: pump ID, syringe size selector, content label, flow rate input, current flow rate display, and Prime button |
 | GUI-03 | Each pressure controller shall be displayed with: device label, per-channel pressure setpoint inputs, current pressure readback per channel, and a Stop All button for that device |
 | GUI-04 | Each fluid line with a flow sensor shall display the live measured flow rate and cumulative volume alongside the pump or pressure controller row for that line; lines without a sensor shall show "N/A" in those fields |
+| GUI-04b | Each fluid line with a pressure sensor shall display the live measured pressure and peak pressure; if an alert threshold is exceeded the field shall highlight in red and remain highlighted until acknowledged by the operator |
 | GUI-05 | The GUI shall display a status bar showing overall running vs. stopped state |
 | GUI-06 | The GUI shall display a command bar showing the last issued command |
 | GUI-07 | Run/Update and Stop buttons shall appear at the top of the GUI |
@@ -145,7 +152,25 @@ The sequence engine treats every controllable output — whether a syringe pump 
 | PRC-08 | The system shall support a timed auto-stop mode for pressure controllers (matching PC-10 for pumps) |
 | PRC-09 | A `FakePressureController` shall simulate per-channel pressure state with configurable ramp-up lag to allow realistic GUI testing |
 
-### 3.8 Camera Integration
+### 3.8 Pressure Sensors
+
+Pressure sensors are read-only instruments distinct from pressure controllers. They may be placed inline on a fluid line, at the output of a pressure controller, or both. They follow the same optional-per-line pattern as flow sensors.
+
+| ID | Requirement |
+|----|-------------|
+| PS-01 | A `PressureSensorInterface` abstract base class shall define the contract for all pressure sensor operations: `get_pressure()`, `get_units()`, `reset_peak()` |
+| PS-02 | The system shall support reading instantaneous pressure from any configured pressure sensor |
+| PS-03 | The system shall support reading and resetting the peak pressure recorded since last reset |
+| PS-04 | Pressure sensor readings shall be returned in mbar; driver implementations shall handle unit conversion |
+| PS-05 | Pressure sensor presence per line shall be declared in the runtime configuration file; absence of a sensor shall not cause errors |
+| PS-06 | Pressure sensor readings shall be polled at a configurable interval (default: 100 ms) |
+| PS-07 | The system shall support configurable alert thresholds per sensor: if pressure exceeds an upper limit or falls below a lower limit, a visual alert shall appear in the GUI and a log entry shall be written |
+| PS-08 | The system shall support closed-loop control using pressure sensor feedback: if measured pressure deviates from setpoint by more than a configurable threshold, the system shall adjust the pressure controller output or pump rate to compensate |
+| PS-09 | Closed-loop control via pressure sensor shall be independently enable/disable-able per line at runtime |
+| PS-10 | Closed-loop control parameters (tolerance, correction gain, max correction step) shall be configurable per line |
+| PS-11 | A `FakePressureSensor` class shall implement `PressureSensorInterface` in memory, returning configurable simulated values with noise and drift for realistic closed-loop testing |
+
+### 3.9 Camera Integration
 
 | ID | Requirement |
 |----|-------------|
@@ -236,6 +261,9 @@ microfluidics-control/
 │   │   ├── flow_sensors/
 │   │   │   ├── sensirion_slf3x.py             # Sensirion SLF3x driver (sensirion-uart-scc1)
 │   │   │   └── fake_flow_sensor.py            # Fake/simulator
+│   │   ├── pressure_sensor_interface.py       # Abstract pressure sensor base class
+│   │   ├── pressure_sensors/
+│   │   │   └── fake_pressure_sensor.py        # Fake/simulator
 │   │   ├── camera_interface.py                # Abstract camera base class
 │   │   ├── cameras/
 │   │   │   ├── opencv_camera.py               # Real OpenCV camera
@@ -320,3 +348,4 @@ The following capabilities are inherited from the ClarkLabUCB fork and must be p
 | 0.2 | 2026-04-14 | Added flow sensor, pressure controller, and generic pump interface requirements; expanded GUI and HAL sections; updated repo layout |
 | 0.3 | 2026-04-14 | Named specific hardware targets: Harvard Apparatus pumps, Elveflow OB1, Fluigent MFCS, Sensirion SLF3x; added SDK dependency notes and platform caveats per brand |
 | 0.4 | 2026-04-14 | Added sequence/protocol engine (SEQ-01 to SEQ-18): CSV/XLSX upload, channel abstraction (pumps and pressure controller channels unified by name), auto-advance with manual override buttons (Next, Prev, Fwd X, Back X), editable seek increment, pause/resume, validation, GUI sequence panel, headless `SequenceRunner` class, template files |
+| 0.5 | 2026-04-14 | Added pressure sensor requirements (PS-01 to PS-11): read-only pressure sensing, alert thresholds, closed-loop feedback, FakePressureSensor; updated repo layout and GUI |
