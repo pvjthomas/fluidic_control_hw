@@ -1,0 +1,5 @@
+step_name,duration_s,oil,buffer,water
+prime,30,10000,10000,10000
+equilibrate,60,500,500,0
+run,300,200,800,
+flush,30,0,0,0
