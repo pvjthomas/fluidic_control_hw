@@ -3,3 +3,4 @@ pytest
 openpyxl
 PyQt5
 opencv-python
+pyobjc-framework-AVFoundation; sys_platform == 'darwin'
