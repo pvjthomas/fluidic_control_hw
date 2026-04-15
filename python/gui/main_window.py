@@ -42,7 +42,7 @@ class MainWindow(QWidget):
             self.pump_panel.set_contents_from_channels
         )
         self.sequence_panel.step_setpoints.connect(
-            self.pump_panel.set_step_setpoints
+            self.pump_panel.apply_setpoints
         )
 
         # Wire pump Run button to start sequence if loaded
@@ -52,6 +52,15 @@ class MainWindow(QWidget):
         # Stop button also stops sequence
         self.pump_panel.stopbtn.clicked.connect(
             self.sequence_panel._stop_sequence
+        )
+        self.sequence_panel.sequence_ended.connect(
+            self.pump_panel.trigger_stop
+        )
+        self.pump_panel.state_changed.connect(
+            self.sequence_panel.on_pump_state_changed
+        )
+        self.sequence_panel.protocol_active.connect(
+            self.pump_panel.set_protocol_active
         )
 
         self.setLayout(layout)

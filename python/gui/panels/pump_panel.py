@@ -25,7 +25,9 @@ SYRINGES = {
 
 class PumpPanel(QWidget):
     """Panel displaying controls for all connected pumps."""
-    run_pressed = pyqtSignal()
+    run_pressed   = pyqtSignal()
+    state_changed = pyqtSignal(str)
+
 
     def __init__(self, pump: PumpInterface) -> None:
         super().__init__()
@@ -124,6 +126,7 @@ class PumpPanel(QWidget):
         self.stopbtn.setChecked(1)
         self._pump.stop_all()
         self.curr_state = 'Stopped'
+        self.state_changed.emit('Stopped')
         self.statusbar.setText('Status: Stopped')
         self.commandbar.setText('Last command: stop all pumps')
         [self.currflow[p].setText('0 ul/hr') for p in self.rates]
@@ -151,6 +154,7 @@ class PumpPanel(QWidget):
             self._pump.set_rates(rates)
             self._pump.run_all()
             self.curr_state = 'Running'
+            self.state_changed.emit('Running')
             self.statusbar.setText('Status: Running')
 
         actual = self._pump.get_rates(list(rates.keys()))
@@ -203,23 +207,68 @@ class PumpPanel(QWidget):
             self.prime_btns[pump_id].setChecked(0)
 
     def set_contents_from_channels(self, channel_names: list) -> None:
-        """Pre-fill Contents fields from protocol channel names."""
-        for i, pump_id in enumerate(self._pumps):
-            if i < len(channel_names):
-                # Find the contents QLineEdit for this row
-                # It's the unnamed QLineEdit in column 2
+            """Fill or clear Contents fields."""
+            for i, pump_id in enumerate(self._pumps):
                 item = self._grid.itemAtPosition(2 + i, 2)
                 if item and item.widget():
-                    item.widget().setText(channel_names[i])
-  
+                    text = channel_names[i] if i < len(channel_names) else ''
+                    item.widget().setText(text)
+    
+    def apply_setpoints(self, rates: dict) -> None:
+            """Apply setpoints from sequence runner — sends to pump directly."""
+            parsed = {}
+            channel_names = list(rates.keys())
+            for i, pump_id in enumerate(self._pumps):
+                if i < len(channel_names):
+                    try:
+                        parsed[pump_id] = float(rates[channel_names[i]])
+                    except (ValueError, TypeError):
+                        continue
+
+            if parsed:
+                if self.curr_state == 'Running':
+                    self._pump.stop_all()
+                    self._pump.set_rates(parsed)
+                    self._pump.run_all()
+                else:
+                    self._pump.set_rates(parsed)
+
+                actual = self._pump.get_rates(list(parsed.keys()))
+
+                # Update input boxes, current flow rate display and command bar
+                rate_strs = []
+                for i, pump_id in enumerate(parsed.keys()):
+                    value = parsed[pump_id]
+                    self.rates[pump_id].setText(str(int(value)))
+                    self.currflow[pump_id].setText(
+                        f'{actual[pump_id]:.1f} ul/hr'
+                    )
+                    rate_strs.append(f'p{pump_id}={int(value)}')
+
+                self.commandbar.setText(
+                    'Last command: sequence step — ' + ', '.join(rate_strs)
+                )
+    
+    def set_protocol_active(self, active: bool) -> None:
+            """Gray out Run/Update only when protocol is running."""
+            if active and self.curr_state == 'Running':
+                self.runbtn.setEnabled(False)
+            else:
+                self.runbtn.setEnabled(True)
+
     def set_step_setpoints(self, setpoints: dict) -> None:
-        """Update flow rate fields from sequence step setpoints."""
+        """Update or clear flow rate fields."""
         channel_names = list(setpoints.keys())
         for i, pump_id in enumerate(self._pumps):
             if i < len(channel_names):
                 name = channel_names[i]
-                value = setpoints[name]
-                self.rates[pump_id].setText(str(int(value)))
-
+                self.rates[pump_id].setText(str(int(setpoints[name])))
+            else:
+                self.rates[pump_id].setText('')
+    
+    def trigger_stop(self) -> None:
+        """Trigger stop from external source e.g. sequence end."""
+        self.stop_all()
+        
     def shutdown(self) -> None:
         self.stop_all()
