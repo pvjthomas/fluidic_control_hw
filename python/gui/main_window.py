@@ -16,15 +16,16 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout
 
 from core.pump_interface import PumpInterface
 from gui.panels.pump_panel import PumpPanel
+from gui.panels.sequence_panel import SequencePanel
 
 
 class MainWindow(QWidget):
 
-    def __init__(self, pump: PumpInterface) -> None:
+    def __init__(self, pump: PumpInterface, channels: dict) -> None:
         super().__init__()
-        self._init_ui(pump)
+        self._init_ui(pump, channels)
 
-    def _init_ui(self, pump: PumpInterface) -> None:
+    def _init_ui(self, pump: PumpInterface, channels: dict) -> None:
         layout = QVBoxLayout()
         layout.setSpacing(10)
 
@@ -32,9 +33,26 @@ class MainWindow(QWidget):
         self.pump_panel = PumpPanel(pump)
         layout.addWidget(self.pump_panel)
 
-        # --- Future panels go here ---
-        # self.sequence_panel = SequencePanel(...)
-        # layout.addWidget(self.sequence_panel)
+        # --- Sequence panel ---
+        self.sequence_panel = SequencePanel(channels)
+        layout.addWidget(self.sequence_panel)
+
+        # Wire sequence panel signals to pump panel
+        self.sequence_panel.channels_loaded.connect(
+            self.pump_panel.set_contents_from_channels
+        )
+        self.sequence_panel.step_setpoints.connect(
+            self.pump_panel.set_step_setpoints
+        )
+
+        # Wire pump Run button to start sequence if loaded
+        self.pump_panel.run_pressed.connect(
+            self.sequence_panel.start
+        )
+        # Stop button also stops sequence
+        self.pump_panel.stopbtn.clicked.connect(
+            self.sequence_panel._stop_sequence
+        )
 
         self.setLayout(layout)
         self.setWindowTitle('Fluidic Control')
@@ -71,14 +89,20 @@ def main():
     if args.fake:
         from core.pumps.fake_pump import FakePump
         pump = FakePump(pump_ids=args.pumps)
+        channels = {
+            f'pump_{pid}': FakePump(pump_ids=[pid])
+            for pid in args.pumps
+        }
+
         print(f'Running with FakePump, IDs: {args.pumps}')
     else:
         from core.pumps.new_era import NewEraPump
         pump = NewEraPump(port=args.port, pump_ids=args.pumps)
+        channels = {}
         print(f'Connected to NewEraPump on {args.port}, IDs: {args.pumps}')
 
     app = QApplication(sys.argv)
-    win = MainWindow(pump)
+    win = MainWindow(pump, channels)
     ret = app.exec_()
     win.shutdown()
     sys.exit(ret)

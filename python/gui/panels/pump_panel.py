@@ -12,7 +12,9 @@ from PyQt5.QtWidgets import (
 )
 
 from core.pump_interface import PumpInterface
+from PyQt5.QtCore import pyqtSignal
 
+    
 SYRINGES = {
     '1 ml BD':  '4.699',
     '3 ml BD':  '8.585',
@@ -23,6 +25,7 @@ SYRINGES = {
 
 class PumpPanel(QWidget):
     """Panel displaying controls for all connected pumps."""
+    run_pressed = pyqtSignal()
 
     def __init__(self, pump: PumpInterface) -> None:
         super().__init__()
@@ -31,7 +34,8 @@ class PumpPanel(QWidget):
         self._init_ui()
 
     def _init_ui(self) -> None:
-        grid = QGridLayout()
+        self._grid = QGridLayout()
+        grid = self._grid
         grid.setSpacing(5)
 
         # --- Top buttons ---
@@ -156,6 +160,7 @@ class PumpPanel(QWidget):
         )
         [self.currflow[p].setText(f'{actual[p]:.1f} ul/hr')
          for p in actual]
+        self.run_pressed.emit()
 
     def update_syringe(self, pump_id: int) -> None:
         if self.curr_state == 'Stopped':
@@ -196,6 +201,25 @@ class PumpPanel(QWidget):
         else:
             self.commandbar.setText("Can't prime while running")
             self.prime_btns[pump_id].setChecked(0)
+
+    def set_contents_from_channels(self, channel_names: list) -> None:
+        """Pre-fill Contents fields from protocol channel names."""
+        for i, pump_id in enumerate(self._pumps):
+            if i < len(channel_names):
+                # Find the contents QLineEdit for this row
+                # It's the unnamed QLineEdit in column 2
+                item = self._grid.itemAtPosition(2 + i, 2)
+                if item and item.widget():
+                    item.widget().setText(channel_names[i])
+  
+    def set_step_setpoints(self, setpoints: dict) -> None:
+        """Update flow rate fields from sequence step setpoints."""
+        channel_names = list(setpoints.keys())
+        for i, pump_id in enumerate(self._pumps):
+            if i < len(channel_names):
+                name = channel_names[i]
+                value = setpoints[name]
+                self.rates[pump_id].setText(str(int(value)))
 
     def shutdown(self) -> None:
         self.stop_all()
