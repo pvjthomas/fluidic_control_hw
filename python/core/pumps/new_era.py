@@ -1,135 +1,234 @@
+"""
+new_era.py
+PumpInterface implementation for New Era syringe pumps.
+Supports NE-500, NE-1000, NE-1010, NE-1600, NE-4000 and compatible models.
+
+Serial protocol: ASCII commands over RS-232/USB at 19200 baud.
+
+Usage:
+    pump = NewEraPump(port='COM3', pump_ids=[0, 1, 2])
+    pump.run_all()
+    pump.set_rates({0: 500.0, 1: -200.0})
+    pump.stop_all()
+"""
+
+import logging
+from typing import Dict, List
+
 import serial
 
-#ser = serial.Serial('COM5',19200)
-#print ser.name       # check which port was really used
-#print ser.isOpen()
-#ser.close()
-#pumps = find_pumps(ser)
-#rates = get_rates(ser,pumps)
+from core.pump_interface import PumpInterface
+
+logger = logging.getLogger(__name__)
+
+# Default serial settings for New Era pumps
+DEFAULT_BAUD = 19200
+DEFAULT_TIMEOUT = 1.0  # seconds
+
+# Rate threshold above which mL/hr is used instead of µL/hr
+RATE_THRESHOLD_UL_HR = 5000.0
 
 
-def find_pumps(ser,tot_range=10):
-    pumps = []
-    for i in range(tot_range):
-        ser.write(str.encode('%iADR\x0D'%i))
-        output = ser.readline()
-        if len(output)>0:
-            pumps.append(i)
-    return pumps
+class NewEraPump(PumpInterface):
+    """
+    Driver for New Era syringe pumps communicating over serial.
+    One instance manages all pumps on the serial network.
+    """
 
-def run_all(ser):
-    cmd = b'*RUN\x0D'
-    ser.write(cmd)
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from run_all not understood')
+    def __init__(
+        self,
+        port: str,
+        pump_ids: List[int],
+        baud: int = DEFAULT_BAUD,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> None:
+        """
+        Args:
+            port:     Serial port name, e.g. 'COM3' or '/dev/ttyUSB0'
+            pump_ids: List of pump IDs expected on the network
+            baud:     Baud rate (default 19200)
+            timeout:  Serial read timeout in seconds
+        """
+        self._port = port
+        self._pump_ids = list(pump_ids)
+        self._ser = serial.Serial(port, baud, timeout=timeout)
+        self._running = False
+        logger.info(
+            f"NewEraPump connected on {port} at {baud} baud, "
+            f"pump IDs: {self._pump_ids}"
+        )
 
-def stop_all(ser):
-    cmd = '*STP\x0D'
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from stop_all not understood')
+    def close(self) -> None:
+        """Close the serial connection."""
+        if self._ser.isOpen():
+            self._ser.close()
+            logger.info("Serial connection closed")
 
-def stop_pump(ser,pump):
-    cmd = '%iSTP\x0D'%pump
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from stop_pump not understood')
+    # ------------------------------------------------------------------
+    # PumpInterface implementation
+    # ------------------------------------------------------------------
 
-    cmd = '%iRAT0UH\x0D'%pump
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from stop_pump not understood')
+    def find_pumps(self, tot_range: int = 10) -> List[int]:
+        """Scan addresses 0-9 and return IDs that respond."""
+        pumps = []
+        for i in range(tot_range):
+            self._ser.write(str.encode('%iADR\x0D' % i))
+            output = self._ser.readline()
+            if len(output) > 0:
+                pumps.append(i)
+        logger.info(f"find_pumps -> {pumps}")
+        return pumps
 
-def set_rates(ser,rate):
-    cmd = ''
-    for pump in rate:
-        fr = float(rate[pump])
-        ###### Kevin Added 4/2/21
-        direction = 'INF'
-        if fr<0: 
-            direction = 'WDR'
-        frcmd = '%iDIR%s\x0D'%(pump,direction)
-        ser.write(str.encode(frcmd))
-        output = ser.readline()
-        if b'?' in output: print (frcmd.strip()+' from set_rates not understood')
-        fr = abs(fr)
-        ######
-        if fr<5000:
-            cmd += str(pump)+'RAT'+str(fr)[:5]+'UH*'
+    def run_all(self) -> None:
+        cmd = b'*RUN\x0D'
+        self._ser.write(cmd)
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from run_all not understood")
         else:
-            fr = fr/1000.0
-            cmd += str(pump)+'RAT'+str(fr)[:5]+'MH*'
-    cmd += '\x0D'
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from set_rates not understood')
-    #return(direction)
+            self._running = True
+            logger.info("run_all")
 
-def get_rate(ser,pump):
-    #cmd = '%iRAT\x0D'%pump 
-    cmd=f"{pump}RAT\x0D"
-    ser.write(str.encode(cmd,encoding='ASCII'))
-    output = ser.readline()
-    ###### Kevin Added 4/2/21
-    sign = ''
-    # if output[4:7]=='WDR':
-    #     sign = '-'
-    #     print(sign)
-    if output.decode()[3]=='W':
-        sign = '-'
-    cmd = '%iRAT\x0D'%pump
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from get_rate not understood')
-    ######
-    #if b'?' in output:
-    #    print (cmd.strip()+' from get_rate not understood')
-    units = output[-3:-1]
-    if units==b'MH':
-        # rate = int(float(output[4:-3])*1000)
-        rate = str(float(output[4:-3])*1000)  
-    elif units==b'UH':
-        # rate = output[4:-3]
-        rate = str(float(output[4:-3])) 
-    else:
-        print (cmd.strip()+' from get_rate not understood')
-        ser.close()
-    return sign+rate # changed from 'return rate' to 'return sign+rate' KJ 4/2/21
+    def stop_all(self) -> None:
+        cmd = '*STP\x0D'
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from stop_all not understood")
+        else:
+            self._running = False
+            logger.info("stop_all")
 
-def get_rates(ser,pumps):
-    #rates = dict(((p,get_rate(ser,p).split(b'.')[0])) for p in pumps)
-    rates = {}
-    #print (type(ser))
-    #print (type(pumps))
-    for p in pumps:
-      #  print (type(p))
-        #pbyte=p.encode('utf-8')
-       rate= str(get_rate(ser,p)).split('.')[0]
-       rates[p]=rate
-    return rates
+    def stop_pump(self, pump_id: int) -> None:
+        self._check_id(pump_id)
 
-def set_diameter(ser,pump,dia):
-    cmd = '%iDIA%s\x0D'%(pump,dia)
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from set_diameter not understood')
+        cmd = '%iSTP\x0D' % pump_id
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from stop_pump not understood")
 
-    
-def get_diameter(ser,pump):
-    cmd = '%iDIA\x0D'%pump
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from get_diameter not understood')
-    dia = output[4:-1]
-    return dia
+        cmd = '%iRAT0UH\x0D' % pump_id
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from stop_pump not understood")
+        else:
+            logger.info(f"stop_pump | pump {pump_id}")
 
-def prime(ser,pump):
-    cmd = '%iRAT10.0MH\x0D'%pump
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from prime not understood')
+    def set_rates(self, rates: Dict[int, float]) -> None:
+        cmd = ''
+        for pump_id, fr in rates.items():
+            self._check_id(pump_id)
+            fr = float(fr)
 
-    cmd = '%iRUN\x0D'%pump
-    ser.write(str.encode(cmd))
-    output = ser.readline()
-    if b'?' in output: print (cmd.strip()+' from prime not understood')
+            # Set direction
+            direction = 'INF' if fr >= 0 else 'WDR'
+            frcmd = '%iDIR%s\x0D' % (pump_id, direction)
+            self._ser.write(str.encode(frcmd))
+            output = self._ser.readline()
+            if b'?' in output:
+                logger.error(
+                    f"{frcmd.strip()} from set_rates not understood"
+                )
+
+            # Build rate command — use MH (mL/hr) above threshold
+            fr = abs(fr)
+            if fr < RATE_THRESHOLD_UL_HR:
+                cmd += str(pump_id) + 'RAT' + str(fr)[:5] + 'UH*'
+            else:
+                cmd += str(pump_id) + 'RAT' + str(fr / 1000.0)[:5] + 'MH*'
+
+        cmd += '\x0D'
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from set_rates not understood")
+        else:
+            logger.info(f"set_rates | {rates}")
+
+    def get_rates(self, pump_ids: List[int]) -> Dict[int, float]:
+        rates = {}
+        for pump_id in pump_ids:
+            self._check_id(pump_id)
+            rates[pump_id] = self._get_rate(pump_id)
+        logger.info(f"get_rates | {rates}")
+        return rates
+
+    def set_diameter(self, pump_id: int, diameter_mm: float) -> None:
+        self._check_id(pump_id)
+        cmd = '%iDIA%s\x0D' % (pump_id, diameter_mm)
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from set_diameter not understood")
+        else:
+            logger.info(f"set_diameter | pump {pump_id} -> {diameter_mm} mm")
+
+    def get_diameter(self, pump_id: int) -> float:
+        self._check_id(pump_id)
+        cmd = '%iDIA\x0D' % pump_id
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from get_diameter not understood")
+        dia = float(output[4:-1])
+        logger.info(f"get_diameter | pump {pump_id} -> {dia} mm")
+        return dia
+
+    def prime(self, pump_id: int) -> None:
+        self._check_id(pump_id)
+
+        cmd = '%iRAT10.0MH\x0D' % pump_id
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from prime not understood")
+
+        cmd = '%iRUN\x0D' % pump_id
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from prime not understood")
+        else:
+            self._running = True
+            logger.info(f"prime | pump {pump_id}")
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _get_rate(self, pump_id: int) -> float:
+        """Read the current flow rate for a single pump. Returns µL/hr."""
+        cmd = f"{pump_id}RAT\x0D"
+        self._ser.write(str.encode(cmd, encoding='ASCII'))
+        output = self._ser.readline()
+
+        # Detect withdraw direction
+        sign = -1.0 if output.decode()[3] == 'W' else 1.0
+
+        # Re-query to get the rate value cleanly
+        cmd = '%iRAT\x0D' % pump_id
+        self._ser.write(str.encode(cmd))
+        output = self._ser.readline()
+        if b'?' in output:
+            logger.error(f"{cmd.strip()} from get_rate not understood")
+            return 0.0
+
+        units = output[-3:-1]
+        if units == b'MH':
+            rate = float(output[4:-3]) * 1000.0  # convert mL/hr -> µL/hr
+        elif units == b'UH':
+            rate = float(output[4:-3])
+        else:
+            logger.error(f"get_rate | unrecognised units: {units}")
+            return 0.0
+
+        return sign * rate
+
+    def _check_id(self, pump_id: int) -> None:
+        if pump_id not in self._pump_ids:
+            raise ValueError(
+                f"Pump ID {pump_id} not found. "
+                f"Available IDs: {self._pump_ids}"
+            )
